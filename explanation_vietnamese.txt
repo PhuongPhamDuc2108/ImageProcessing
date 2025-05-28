@@ -1,0 +1,145 @@
+# Giải thích mã nguồn ứng dụng phân loại nhiễu ảnh
+
+## Tổng quan về ứng dụng
+Ứng dụng này là một công cụ phân loại nhiễu ảnh sử dụng học máy để nhận diện và phân loại các loại nhiễu khác nhau trong ảnh. Ứng dụng có giao diện đồ họa người dùng (GUI) được xây dựng bằng thư viện tkinter, cho phép người dùng nhập ảnh, thêm nhiễu vào ảnh, huấn luyện mô hình phân loại, và sử dụng mô hình đã huấn luyện để phân loại loại nhiễu trong ảnh.
+
+## Mô hình học máy được sử dụng
+Ứng dụng sử dụng mô hình **Random Forest Classifier** (Bộ phân loại rừng ngẫu nhiên) từ thư viện scikit-learn. Đây là một mô hình học máy dựa trên tập hợp nhiều cây quyết định (decision trees) để thực hiện phân loại. Mô hình này được khởi tạo với 100 cây quyết định (n_estimators=100) và random_state=42 để đảm bảo kết quả có thể tái tạo được.
+
+Random Forest được chọn vì:
+1. Hiệu quả cao trong việc xử lý dữ liệu có nhiều đặc trưng
+2. Khả năng chống overfitting tốt
+3. Có thể xử lý cả dữ liệu số và dữ liệu phân loại
+4. Cung cấp thông tin về tầm quan trọng của các đặc trưng
+
+## Giải thích chi tiết các lớp và phương thức
+
+### 1. Lớp NoiseClassifier
+Lớp này xử lý việc phân loại nhiễu bằng cách sử dụng mô hình học máy.
+
+#### Phương thức `__init__`
+```python
+def __init__(self):
+    self.model = RandomForestClassifier(n_estimators=100, random_state=42)
+    self.scaler = StandardScaler()
+    self.is_trained = False
+    self.classes = ["Clean", "Gaussian Noise", "Salt & Pepper Noise", "Speckle Noise"]
+```
+- Khởi tạo mô hình Random Forest với 100 cây quyết định
+- Khởi tạo bộ chuẩn hóa dữ liệu (StandardScaler) để chuẩn hóa các đặc trưng
+- Thiết lập trạng thái ban đầu là chưa huấn luyện
+- Định nghĩa các lớp phân loại: ảnh sạch, nhiễu Gaussian, nhiễu muối tiêu, và nhiễu đốm
+
+#### Phương thức `extract_features`
+Phương thức này trích xuất các đặc trưng từ ảnh để sử dụng cho việc phân loại. Các đặc trưng bao gồm:
+- Đặc trưng thống kê cơ bản (giá trị trung bình, độ lệch chuẩn, phương sai)
+- Entropy Shannon (đo lường mức độ ngẫu nhiên trong ảnh)
+- Đặc trưng phát hiện cạnh (sử dụng toán tử Sobel)
+- Đặc trưng miền tần số (sử dụng biến đổi Fourier)
+- Đặc trưng kết cấu GLCM (Gray Level Co-occurrence Matrix)
+
+Phương thức này được thiết kế để trích xuất các đặc trưng có khả năng phân biệt tốt giữa các loại nhiễu khác nhau.
+
+#### Phương thức `train`
+Phương thức này huấn luyện mô hình với dữ liệu đầu vào:
+1. Chuẩn hóa dữ liệu đặc trưng
+2. Chia dữ liệu thành tập huấn luyện và tập kiểm tra (80% huấn luyện, 20% kiểm tra)
+3. Huấn luyện mô hình Random Forest
+4. Đánh giá mô hình và trả về độ chính xác và báo cáo phân loại
+
+#### Phương thức `predict`
+Dự đoán loại nhiễu trong ảnh đầu vào:
+1. Trích xuất đặc trưng từ ảnh
+2. Chuẩn hóa đặc trưng
+3. Sử dụng mô hình đã huấn luyện để dự đoán loại nhiễu
+4. Trả về kết quả dự đoán và xác suất cho mỗi lớp
+
+#### Phương thức `save_model` và `load_model`
+Lưu và tải mô hình đã huấn luyện sử dụng thư viện pickle.
+
+### 2. Lớp ImageProcessor
+Lớp này xử lý việc tạo và thêm nhiễu vào ảnh.
+
+#### Phương thức `add_gaussian_noise`
+Thêm nhiễu Gaussian vào ảnh. Nhiễu Gaussian là nhiễu ngẫu nhiên tuân theo phân phối chuẩn (phân phối Gauss) với giá trị trung bình và độ lệch chuẩn cho trước. Phương thức này:
+1. Tạo ma trận nhiễu ngẫu nhiên theo phân phối chuẩn
+2. Cộng ma trận nhiễu vào ảnh gốc
+3. Giới hạn giá trị pixel trong khoảng [0, 255]
+
+#### Phương thức `add_salt_pepper_noise`
+Thêm nhiễu muối tiêu vào ảnh. Nhiễu muối tiêu là nhiễu làm xuất hiện các điểm trắng (muối) và đen (tiêu) ngẫu nhiên trong ảnh. Phương thức này:
+1. Tạo mặt nạ ngẫu nhiên cho các điểm muối (trắng)
+2. Tạo mặt nạ ngẫu nhiên cho các điểm tiêu (đen)
+3. Áp dụng các mặt nạ này lên ảnh
+
+#### Phương thức `add_speckle_noise`
+Thêm nhiễu đốm vào ảnh. Nhiễu đốm là nhiễu nhân tính, tỷ lệ thuận với cường độ pixel. Phương thức này:
+1. Tạo ma trận nhiễu ngẫu nhiên theo phân phối chuẩn
+2. Thêm nhiễu vào ảnh theo công thức: ảnh + ảnh * nhiễu * hệ số
+3. Giới hạn giá trị pixel trong khoảng [0, 255]
+
+#### Phương thức `generate_training_data`
+Tạo dữ liệu huấn luyện bằng cách thêm các loại nhiễu khác nhau vào ảnh sạch:
+1. Tạo thư mục cho mỗi loại nhiễu
+2. Đọc các ảnh sạch từ thư mục đầu vào
+3. Lưu ảnh sạch vào thư mục tương ứng
+4. Tạo và lưu các phiên bản ảnh có nhiễu (Gaussian, muối tiêu, đốm) với các tham số ngẫu nhiên
+
+#### Phương thức `prepare_dataset`
+Chuẩn bị tập dữ liệu để huấn luyện từ các ảnh đã tạo:
+1. Đọc ảnh từ các thư mục phân loại
+2. Trích xuất đặc trưng từ mỗi ảnh
+3. Gán nhãn tương ứng với loại nhiễu
+4. Trả về mảng đặc trưng và mảng nhãn
+
+### 3. Lớp NoiseClassifierApp
+Lớp chính của ứng dụng, xử lý giao diện người dùng và tương tác.
+
+#### Phương thức `__init__` và `setup_ui`
+Khởi tạo ứng dụng và thiết lập giao diện người dùng với các thành phần:
+- Khung hiển thị ảnh
+- Các nút điều khiển (nhập ảnh, phân loại, thêm nhiễu)
+- Khung hiển thị kết quả phân loại
+- Biểu đồ xác suất
+- Các điều khiển mô hình (huấn luyện, lưu, tải)
+- Thanh trạng thái
+
+#### Phương thức `import_image` và `display_image`
+Nhập ảnh từ tệp và hiển thị lên giao diện, với việc điều chỉnh kích thước để phù hợp với khung hiển thị.
+
+#### Phương thức `add_noise`
+Thêm loại nhiễu được chọn vào ảnh hiện tại và cập nhật hiển thị.
+
+#### Phương thức `classify_image` và `_classify_thread`
+Phân loại ảnh hiện tại bằng mô hình đã huấn luyện. Việc phân loại được thực hiện trong một luồng riêng để tránh làm đơ giao diện.
+
+#### Phương thức `_update_results`
+Cập nhật kết quả phân loại lên giao diện, bao gồm văn bản và biểu đồ xác suất.
+
+#### Phương thức `generate_training_data` và `_generate_data_thread`
+Tạo dữ liệu huấn luyện từ ảnh sạch. Quá trình này được thực hiện trong một luồng riêng.
+
+#### Phương thức `train_model` và `_train_model_thread`
+Huấn luyện mô hình phân loại với dữ liệu từ thư mục đã chọn. Quá trình huấn luyện được thực hiện trong một luồng riêng.
+
+#### Phương thức `_show_training_results`
+Hiển thị kết quả huấn luyện, bao gồm độ chính xác và báo cáo phân loại chi tiết.
+
+#### Phương thức `save_model` và `load_model`
+Lưu mô hình đã huấn luyện vào tệp hoặc tải mô hình từ tệp.
+
+## Điểm chính của ứng dụng
+
+1. **Mô hình học máy**: Sử dụng Random Forest Classifier để phân loại nhiễu ảnh với độ chính xác cao.
+
+2. **Trích xuất đặc trưng**: Sử dụng nhiều loại đặc trưng khác nhau (thống kê, entropy, miền tần số, kết cấu) để phân biệt các loại nhiễu.
+
+3. **Xử lý đa luồng**: Sử dụng threading để thực hiện các tác vụ nặng (tạo dữ liệu, huấn luyện mô hình) mà không làm đơ giao diện.
+
+4. **Tạo dữ liệu huấn luyện**: Có khả năng tự động tạo dữ liệu huấn luyện từ ảnh sạch bằng cách thêm các loại nhiễu khác nhau.
+
+5. **Giao diện thân thiện**: Giao diện đồ họa trực quan cho phép người dùng dễ dàng tương tác với ứng dụng.
+
+6. **Lưu/tải mô hình**: Có thể lưu mô hình đã huấn luyện để sử dụng lại sau này.
+
+Ứng dụng này có thể hữu ích trong nhiều lĩnh vực như xử lý ảnh, thị giác máy tính, và kiểm soát chất lượng ảnh, nơi việc nhận diện và phân loại nhiễu là quan trọng.
