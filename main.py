@@ -11,7 +11,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score, precision_score, recall_score
 from skimage.feature import graycomatrix, graycoprops
 from skimage import exposure
 
@@ -89,10 +89,24 @@ class NoiseClassifier:
         unique_classes = np.unique(y)
         class_names = [self.classes[i] for i in unique_classes]
 
-        report = classification_report(y_test, y_pred, target_names=class_names)
+        # Calculate additional metrics
+        conf_matrix = confusion_matrix(y_test, y_pred, labels=unique_classes)
+
+        # Calculate F1, precision, and recall scores for each class
+        f1 = f1_score(y_test, y_pred, labels=unique_classes, average=None)
+        precision = precision_score(y_test, y_pred, labels=unique_classes, average=None)
+        recall = recall_score(y_test, y_pred, labels=unique_classes, average=None)
+
+        # Calculate average scores
+        f1_avg = f1_score(y_test, y_pred, labels=unique_classes, average='weighted')
+        precision_avg = precision_score(y_test, y_pred, labels=unique_classes, average='weighted')
+        recall_avg = recall_score(y_test, y_pred, labels=unique_classes, average='weighted')
+
+        # Use labels parameter to explicitly specify which labels to include in the report
+        report = classification_report(y_test, y_pred, target_names=class_names, labels=unique_classes)
 
         self.is_trained = True
-        return accuracy, report
+        return accuracy, report, conf_matrix, class_names, f1, precision, recall, f1_avg, precision_avg, recall_avg
 
     def predict(self, image):
         if not self.is_trained:
@@ -513,24 +527,156 @@ class NoiseClassifierApp:
                 return
 
             # Train model
-            accuracy, report = self.classifier.train(X, y)
+            accuracy, report, conf_matrix, class_names, f1, precision, recall, f1_avg, precision_avg, recall_avg = self.classifier.train(X, y)
 
             # Display results
-            self.root.after(0, lambda: self._show_training_results(accuracy, report))
+            self.root.after(0, lambda: self._show_training_results(
+                accuracy, report, conf_matrix, class_names, f1, precision, recall, f1_avg, precision_avg, recall_avg
+            ))
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("Error", 
                                                           f"Training error: {str(e)}"))
             self.root.after(0, lambda: self.status_var.set("Error training model"))
 
-    def _show_training_results(self, accuracy, report):
+    def _show_training_results(self, accuracy, report, conf_matrix, class_names, f1, precision, recall, f1_avg, precision_avg, recall_avg):
         result_window = tk.Toplevel(self.root)
         result_window.title("Training Results")
-        result_window.geometry("500x400")
+        result_window.geometry("800x600")
 
-        ttk.Label(result_window, text=f"Accuracy: {accuracy:.4f}", 
-                 font=("Arial", 12, "bold")).pack(pady=10)
+        # Create a notebook (tabbed interface)
+        notebook = ttk.Notebook(result_window)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        report_text = tk.Text(result_window, wrap=tk.WORD, width=60, height=20)
+        # Summary tab
+        summary_frame = ttk.Frame(notebook)
+        notebook.add(summary_frame, text="Summary")
+
+        # Display accuracy and average metrics
+        metrics_frame = ttk.LabelFrame(summary_frame, text="Overall Metrics")
+        metrics_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Label(metrics_frame, text=f"Accuracy: {accuracy:.4f}", 
+                 font=("Arial", 12, "bold")).pack(anchor=tk.W, padx=10, pady=5)
+        ttk.Label(metrics_frame, text=f"F1 Score (weighted): {f1_avg:.4f}", 
+                 font=("Arial", 12)).pack(anchor=tk.W, padx=10, pady=5)
+        ttk.Label(metrics_frame, text=f"Precision (weighted): {precision_avg:.4f}", 
+                 font=("Arial", 12)).pack(anchor=tk.W, padx=10, pady=5)
+        ttk.Label(metrics_frame, text=f"Recall (weighted): {recall_avg:.4f}", 
+                 font=("Arial", 12)).pack(anchor=tk.W, padx=10, pady=5)
+
+        # Display confusion matrix
+        cm_frame = ttk.LabelFrame(summary_frame, text="Confusion Matrix")
+        cm_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Create a figure for the confusion matrix
+        fig_cm, ax_cm = plt.subplots(figsize=(6, 5))
+        im = ax_cm.imshow(conf_matrix, interpolation='nearest', cmap=plt.cm.Blues)
+        ax_cm.set_title("Confusion Matrix")
+
+        # Add colorbar
+        plt.colorbar(im)
+
+        # Add class labels
+        tick_marks = np.arange(len(class_names))
+        ax_cm.set_xticks(tick_marks)
+        ax_cm.set_yticks(tick_marks)
+        ax_cm.set_xticklabels(class_names, rotation=45, ha="right")
+        ax_cm.set_yticklabels(class_names)
+
+        # Add text annotations to the confusion matrix
+        thresh = conf_matrix.max() / 2.
+        for i in range(conf_matrix.shape[0]):
+            for j in range(conf_matrix.shape[1]):
+                ax_cm.text(j, i, format(conf_matrix[i, j], 'd'),
+                          ha="center", va="center",
+                          color="white" if conf_matrix[i, j] > thresh else "black")
+
+        ax_cm.set_ylabel('True label')
+        ax_cm.set_xlabel('Predicted label')
+        plt.tight_layout()
+
+        # Embed the confusion matrix plot in the UI
+        canvas_cm = FigureCanvasTkAgg(fig_cm, master=cm_frame)
+        canvas_cm.draw()
+        canvas_cm.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Class metrics tab
+        class_metrics_frame = ttk.Frame(notebook)
+        notebook.add(class_metrics_frame, text="Class Metrics")
+
+        # Create a table for class metrics
+        metrics_table = ttk.Treeview(class_metrics_frame, columns=("Class", "F1", "Precision", "Recall"), show="headings")
+        metrics_table.heading("Class", text="Class")
+        metrics_table.heading("F1", text="F1 Score")
+        metrics_table.heading("Precision", text="Precision")
+        metrics_table.heading("Recall", text="Recall")
+
+        metrics_table.column("Class", width=150)
+        metrics_table.column("F1", width=100)
+        metrics_table.column("Precision", width=100)
+        metrics_table.column("Recall", width=100)
+
+        for i, class_name in enumerate(class_names):
+            metrics_table.insert("", "end", values=(
+                class_name, 
+                f"{f1[i]:.4f}", 
+                f"{precision[i]:.4f}", 
+                f"{recall[i]:.4f}"
+            ))
+
+        metrics_table.pack(fill=tk.X, padx=10, pady=10)
+
+        # Create a chart to visualize class metrics
+        chart_frame = ttk.LabelFrame(class_metrics_frame, text="Class Metrics Visualization")
+        chart_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Create a figure for the class metrics chart
+        fig_metrics, ax_metrics = plt.subplots(figsize=(8, 4))
+
+        # Set up the bar chart
+        x = np.arange(len(class_names))  # the label locations
+        width = 0.25  # the width of the bars
+
+        # Create bars for each metric
+        bars1 = ax_metrics.bar(x - width, f1, width, label='F1 Score')
+        bars2 = ax_metrics.bar(x, precision, width, label='Precision')
+        bars3 = ax_metrics.bar(x + width, recall, width, label='Recall')
+
+        # Add labels, title and legend
+        ax_metrics.set_xlabel('Classes')
+        ax_metrics.set_ylabel('Scores')
+        ax_metrics.set_title('Class Metrics Comparison')
+        ax_metrics.set_xticks(x)
+        ax_metrics.set_xticklabels(class_names, rotation=45, ha="right")
+        ax_metrics.set_ylim(0, 1.1)  # Metrics are between 0 and 1
+        ax_metrics.legend()
+
+        # Add value labels on top of bars
+        def add_labels(bars):
+            for bar in bars:
+                height = bar.get_height()
+                ax_metrics.annotate(f'{height:.2f}',
+                                   xy=(bar.get_x() + bar.get_width() / 2, height),
+                                   xytext=(0, 3),  # 3 points vertical offset
+                                   textcoords="offset points",
+                                   ha='center', va='bottom', rotation=0, fontsize=8)
+
+        add_labels(bars1)
+        add_labels(bars2)
+        add_labels(bars3)
+
+        plt.tight_layout()
+
+        # Embed the chart in the UI
+        canvas_metrics = FigureCanvasTkAgg(fig_metrics, master=chart_frame)
+        canvas_metrics.draw()
+        canvas_metrics.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Report tab
+        report_frame = ttk.Frame(notebook)
+        notebook.add(report_frame, text="Full Report")
+
+        report_text = tk.Text(report_frame, wrap=tk.WORD, width=80, height=30)
         report_text.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
         report_text.insert(tk.END, report)
         report_text.config(state=tk.DISABLED)

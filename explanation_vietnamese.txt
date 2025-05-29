@@ -42,10 +42,20 @@ Phương thức này được thiết kế để trích xuất các đặc trưn
 
 #### Phương thức `train`
 Phương thức này huấn luyện mô hình với dữ liệu đầu vào:
-1. Chuẩn hóa dữ liệu đặc trưng
-2. Chia dữ liệu thành tập huấn luyện và tập kiểm tra (80% huấn luyện, 20% kiểm tra)
-3. Huấn luyện mô hình Random Forest
-4. Đánh giá mô hình và trả về độ chính xác và báo cáo phân loại
+1. Chuẩn hóa dữ liệu đặc trưng sử dụng StandardScaler để đảm bảo tất cả các đặc trưng có cùng thang đo
+2. Chia dữ liệu thành tập huấn luyện và tập kiểm tra (80% huấn luyện, 20% kiểm tra) để đánh giá hiệu suất mô hình một cách khách quan
+3. Huấn luyện mô hình Random Forest trên tập huấn luyện
+4. Đánh giá mô hình trên tập kiểm tra và tính toán các chỉ số đánh giá:
+   - Độ chính xác (accuracy): tỷ lệ dự đoán đúng trên tổng số mẫu
+   - Ma trận nhầm lẫn (confusion matrix): hiển thị số lượng mẫu được phân loại đúng và sai cho từng lớp
+   - Chỉ số F1 (F1-score): trung bình điều hòa của precision và recall, đo lường hiệu suất tổng thể
+   - Độ chính xác (precision): tỷ lệ dự đoán đúng trên tổng số dự đoán dương tính
+   - Độ thu hồi (recall): tỷ lệ dự đoán đúng trên tổng số mẫu dương tính thực tế
+5. Tính toán các chỉ số trung bình có trọng số (weighted average) cho F1, precision và recall
+6. Tạo báo cáo phân loại chi tiết với các chỉ số cho từng lớp
+7. Sử dụng tham số labels để chỉ định rõ các nhãn cần đưa vào báo cáo, tránh lỗi không khớp giữa số lượng lớp và kích thước của target_names
+
+Phương thức này trả về tất cả các chỉ số đánh giá để hiển thị trong giao diện người dùng, giúp người dùng đánh giá hiệu suất mô hình một cách toàn diện.
 
 #### Phương thức `predict`
 Dự đoán loại nhiễu trong ảnh đầu vào:
@@ -120,10 +130,46 @@ Cập nhật kết quả phân loại lên giao diện, bao gồm văn bản và
 Tạo dữ liệu huấn luyện từ ảnh sạch. Quá trình này được thực hiện trong một luồng riêng.
 
 #### Phương thức `train_model` và `_train_model_thread`
-Huấn luyện mô hình phân loại với dữ liệu từ thư mục đã chọn. Quá trình huấn luyện được thực hiện trong một luồng riêng.
+Huấn luyện mô hình phân loại với dữ liệu từ thư mục đã chọn:
+1. Phương thức `train_model` khởi động quá trình huấn luyện bằng cách mở hộp thoại cho người dùng chọn thư mục dữ liệu huấn luyện
+2. Sau khi người dùng chọn thư mục, phương thức tạo một luồng riêng (`_train_model_thread`) để thực hiện quá trình huấn luyện, tránh làm đơ giao diện người dùng
+3. Trong luồng `_train_model_thread`:
+   - Chuẩn bị dữ liệu từ thư mục đã chọn bằng cách gọi phương thức `prepare_dataset`
+   - Kiểm tra xem dữ liệu có tồn tại không
+   - Gọi phương thức `train` của lớp NoiseClassifier để huấn luyện mô hình
+   - Nhận lại các chỉ số đánh giá (accuracy, report, confusion matrix, F1, precision, recall và các giá trị trung bình)
+   - Hiển thị kết quả huấn luyện bằng cách gọi phương thức `_show_training_results`
+
+Việc thực hiện huấn luyện trong một luồng riêng là rất quan trọng vì quá trình huấn luyện có thể mất nhiều thời gian, đặc biệt với tập dữ liệu lớn. Điều này đảm bảo giao diện người dùng vẫn phản hồi trong quá trình huấn luyện.
 
 #### Phương thức `_show_training_results`
-Hiển thị kết quả huấn luyện, bao gồm độ chính xác và báo cáo phân loại chi tiết.
+Hiển thị kết quả huấn luyện trong một cửa sổ mới với giao diện tab:
+
+1. **Thiết kế giao diện tab**: Sử dụng ttk.Notebook để tạo giao diện tab, giúp tổ chức thông tin một cách rõ ràng và dễ tiếp cận:
+   - Tab "Summary" (Tổng quan): Hiển thị các chỉ số tổng thể và ma trận nhầm lẫn
+   - Tab "Class Metrics" (Chỉ số theo lớp): Hiển thị bảng và biểu đồ các chỉ số cho từng lớp
+   - Tab "Full Report" (Báo cáo đầy đủ): Hiển thị báo cáo phân loại chi tiết
+
+2. **Tab Summary**:
+   - Hiển thị các chỉ số tổng thể: accuracy, F1, precision, recall (weighted average)
+   - Hiển thị ma trận nhầm lẫn dưới dạng biểu đồ nhiệt (heatmap) với màu sắc thể hiện số lượng mẫu
+   - Ma trận nhầm lẫn giúp người dùng hiểu rõ mô hình đang nhầm lẫn giữa các lớp như thế nào
+
+3. **Tab Class Metrics**:
+   - Hiển thị bảng với các chỉ số F1, precision, recall cho từng lớp
+   - Hiển thị biểu đồ cột so sánh các chỉ số này giữa các lớp
+   - Biểu đồ cột được thiết kế với 3 cột cho mỗi lớp (F1, precision, recall) để dễ dàng so sánh
+   - Mỗi cột có nhãn giá trị ở trên để người dùng dễ dàng đọc giá trị chính xác
+
+4. **Tab Full Report**:
+   - Hiển thị báo cáo phân loại đầy đủ từ scikit-learn
+   - Báo cáo này bao gồm tất cả các chỉ số cho từng lớp và giá trị trung bình
+
+Phương thức này sử dụng thư viện matplotlib để tạo các biểu đồ trực quan và FigureCanvasTkAgg để nhúng biểu đồ vào giao diện tkinter. Việc trực quan hóa các chỉ số đánh giá giúp người dùng:
+- Nhanh chóng nắm bắt hiệu suất tổng thể của mô hình
+- Xác định các lớp mà mô hình hoạt động tốt hoặc kém
+- Hiểu rõ các điểm mạnh và điểm yếu của mô hình
+- Đưa ra quyết định về việc cải thiện mô hình hoặc thu thập thêm dữ liệu
 
 #### Phương thức `save_model` và `load_model`
 Lưu mô hình đã huấn luyện vào tệp hoặc tải mô hình từ tệp.
@@ -138,8 +184,17 @@ Lưu mô hình đã huấn luyện vào tệp hoặc tải mô hình từ tệp.
 
 4. **Tạo dữ liệu huấn luyện**: Có khả năng tự động tạo dữ liệu huấn luyện từ ảnh sạch bằng cách thêm các loại nhiễu khác nhau.
 
-5. **Giao diện thân thiện**: Giao diện đồ họa trực quan cho phép người dùng dễ dàng tương tác với ứng dụng.
+5. **Đánh giá mô hình toàn diện**: Tính toán và hiển thị nhiều chỉ số đánh giá (accuracy, F1, precision, recall, confusion matrix) giúp người dùng hiểu rõ hiệu suất của mô hình.
 
-6. **Lưu/tải mô hình**: Có thể lưu mô hình đã huấn luyện để sử dụng lại sau này.
+6. **Trực quan hóa kết quả**: Sử dụng biểu đồ và đồ thị để trực quan hóa các chỉ số đánh giá, giúp người dùng dễ dàng nắm bắt thông tin:
+   - Ma trận nhầm lẫn dưới dạng biểu đồ nhiệt
+   - Biểu đồ cột so sánh F1, precision, recall giữa các lớp
+   - Biểu đồ xác suất khi phân loại ảnh
+
+7. **Giao diện tab**: Tổ chức thông tin kết quả huấn luyện thành các tab riêng biệt, giúp người dùng dễ dàng truy cập và hiểu thông tin.
+
+8. **Giao diện thân thiện**: Giao diện đồ họa trực quan cho phép người dùng dễ dàng tương tác với ứng dụng.
+
+9. **Lưu/tải mô hình**: Có thể lưu mô hình đã huấn luyện để sử dụng lại sau này.
 
 Ứng dụng này có thể hữu ích trong nhiều lĩnh vực như xử lý ảnh, thị giác máy tính, và kiểm soát chất lượng ảnh, nơi việc nhận diện và phân loại nhiễu là quan trọng.
